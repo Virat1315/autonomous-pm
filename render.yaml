@@ -1,0 +1,150 @@
+# Autonomous PM — Render Blueprint
+# Deploy: Render Dashboard → New → Blueprint → connect GitHub repo → Deploy
+# Secrets (MONGODB_URI, GEMINI_API_KEY) use sync: false — set in dashboard on first deploy.
+
+services:
+  # ── 1. Ticket Service (deploy first — everything depends on it) ──────────────
+  - type: web
+    name: apm-ticket-service
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: services/ticket-service
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_BACKEND
+        value: mongo
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DBNAME
+        value: autonomous_pm
+      - key: PORT
+        value: "3001"
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGINS
+        value: https://web-dashboard-azure.vercel.app
+
+  # ── 2. Priority Service (repo-root build context for packages/) ─────────────
+  - type: web
+    name: apm-priority-service
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./services/priority-service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3003"
+      - key: TICKET_SERVICE_URL
+        value: https://apm-ticket-service.onrender.com
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-1.5-pro
+      - key: LOG_LEVEL
+        value: info
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "30"
+      - key: CORS_ORIGINS
+        value: https://web-dashboard-azure.vercel.app
+
+  # ── 3. Standup Service ───────────────────────────────────────────────────────
+  - type: web
+    name: apm-standup-service
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./services/standup-service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3004"
+      - key: TICKET_SERVICE_URL
+        value: https://apm-ticket-service.onrender.com
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-1.5-pro
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGINS
+        value: https://web-dashboard-azure.vercel.app
+
+  # ── 4. Orchestrator Service ──────────────────────────────────────────────────
+  - type: web
+    name: apm-orchestrator-service
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: services/orchestrator-service
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3005"
+      - key: TICKET_SERVICE_URL
+        value: https://apm-ticket-service.onrender.com
+      - key: PRIORITY_SERVICE_URL
+        value: https://apm-priority-service.onrender.com
+      - key: STANDUP_SERVICE_URL
+        value: https://apm-standup-service.onrender.com
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "60"
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGINS
+        value: https://web-dashboard-azure.vercel.app
+
+  # ── 5. Slack Intake Service ──────────────────────────────────────────────────
+  - type: web
+    name: apm-slack-intake
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: services/slack-intake-service
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3006"
+      - key: TICKET_SERVICE_URL
+        value: https://apm-ticket-service.onrender.com
+      - key: LOG_LEVEL
+        value: info
+
+  # ── 6. GitHub Status Service ─────────────────────────────────────────────────
+  - type: web
+    name: apm-github-status
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: services/github-status-service
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3002"
+      - key: TICKET_SERVICE_URL
+        value: https://apm-ticket-service.onrender.com
+      - key: JIRA_PROJECT_KEYS
+        value: APM
+      - key: LOG_LEVEL
+        value: info
