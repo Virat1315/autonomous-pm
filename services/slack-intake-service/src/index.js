@@ -8,16 +8,25 @@ const receiver = new ExpressReceiver({
   endpoints: "/slack/events",
 });
 
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  receiver,
-});
-
 receiver.router.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "slack-intake-service", port: process.env.PORT || 3006 });
+  res.json({
+    status: "ok",
+    service: "slack-intake-service",
+    port: process.env.PORT || 3006,
+    slack_enabled: Boolean(process.env.SLACK_BOT_TOKEN),
+  });
 });
 
-app.message(async ({ message, client }) => {
+const slackToken = process.env.SLACK_BOT_TOKEN;
+if (!slackToken) {
+  console.warn("[intake] SLACK_BOT_TOKEN not set – HTTP health only, Slack events disabled");
+}
+
+const app = slackToken
+  ? new App({ token: slackToken, receiver })
+  : null;
+
+if (app) app.message(async ({ message, client }) => {
   try {
     if (message.subtype || message.bot_id) return;
     const ticketData = parseTicketFromMessage(message);
@@ -44,7 +53,7 @@ app.message(async ({ message, client }) => {
   }
 });
 
-app.command("/ticket", async ({ command, ack, respond }) => {
+if (app) app.command("/ticket", async ({ command, ack, respond }) => {
   await ack();
   try {
     const text = command.text?.trim();
@@ -70,6 +79,12 @@ app.command("/ticket", async ({ command, ack, respond }) => {
 
 const PORT = process.env.PORT || 3006;
 (async () => {
-  await app.start(PORT);
-  console.log(`⚡ Slack Intake Service running on port ${PORT}`);
+  if (app) {
+    await app.start(PORT);
+    console.log(`⚡ Slack Intake Service running on port ${PORT}`);
+  } else {
+    receiver.app.listen(PORT, () => {
+      console.log(`⚡ Slack Intake Service (health-only) running on port ${PORT}`);
+    });
+  }
 })();

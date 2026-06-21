@@ -12,6 +12,7 @@ COPY packages/slack-client/ ./packages/slack-client/
 # Copy service source
 COPY services/priority-service/src/ ./src/
 
+ENV PYTHONPATH=/app/packages/llm-client
 ENV PORT=3003
 EXPOSE 3003
 CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${PORT}"]
