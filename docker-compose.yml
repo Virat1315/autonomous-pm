@@ -1,0 +1,190 @@
+version: "3.9"
+
+# ── Database choice ────────────────────────────────────────────────────────────
+# Default: PostgreSQL (comment out mongo block and uncomment postgres block)
+# Alternative: MongoDB Atlas – set MONGODB_URI in .env and set DATABASE_BACKEND=mongo
+# For local MongoDB: uncomment the mongo service below
+
+services:
+
+  # ── Local PostgreSQL (default – comment out if using MongoDB) ──────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       autonomous_pm
+      POSTGRES_USER:     apm_user
+      POSTGRES_PASSWORD: apm_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apm_user -d autonomous_pm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Local MongoDB (uncomment if using MongoDB locally) ─────────────────────
+  # mongo:
+  #   image: mongo:7
+  #   restart: unless-stopped
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+  #   healthcheck:
+  #     test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # ── Ticket Service (Core) ──────────────────────────────────────────────────
+  ticket-service:
+    build:
+      context: ./services/ticket-service
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT:             "3001"
+      LOG_LEVEL:        info
+      CORS_ORIGINS:     "http://localhost:3000,http://web-dashboard:3000"
+      # --- SQL backend (PostgreSQL) ---
+      DATABASE_BACKEND: ${DATABASE_BACKEND:-sql}
+      DATABASE_URL:     postgresql://apm_user:apm_password@postgres:5432/autonomous_pm
+      # --- MongoDB backend (Atlas or local) ---
+      # DATABASE_BACKEND: mongo
+      # MONGODB_URI:     ${MONGODB_URI}
+      # MONGODB_DBNAME:  autonomous_pm
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # mongo:            # uncomment if using local MongoDB
+      #   condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:3001/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Priority Service ───────────────────────────────────────────────────────
+  priority-service:
+    build:
+      context: .
+      dockerfile: services/priority-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      PORT:                  "3003"
+      TICKET_SERVICE_URL:    http://ticket-service:3001
+      LLM_PROVIDER:          ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY:        ${GEMINI_API_KEY:-}
+      GEMINI_MODEL:          ${GEMINI_MODEL:-gemini-1.5-pro}
+      OPENAI_API_KEY:        ${OPENAI_API_KEY:-}
+      OPENAI_MODEL:          ${OPENAI_MODEL:-gpt-4o}
+      ANTHROPIC_API_KEY:     ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL:       ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      SLACK_BOT_TOKEN:       ${SLACK_BOT_TOKEN:-}
+      SLACK_NOTIFY_CHANNEL:  ${SLACK_NOTIFY_CHANNEL:-#engineering}
+      LOG_LEVEL:             info
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+
+  # ── Standup Service ────────────────────────────────────────────────────────
+  standup-service:
+    build:
+      context: .
+      dockerfile: services/standup-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    environment:
+      PORT:                  "3004"
+      TICKET_SERVICE_URL:    http://ticket-service:3001
+      LLM_PROVIDER:          ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY:        ${GEMINI_API_KEY:-}
+      GEMINI_MODEL:          ${GEMINI_MODEL:-gemini-1.5-pro}
+      OPENAI_API_KEY:        ${OPENAI_API_KEY:-}
+      OPENAI_MODEL:          ${OPENAI_MODEL:-gpt-4o}
+      ANTHROPIC_API_KEY:     ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL:       ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      SLACK_BOT_TOKEN:       ${SLACK_BOT_TOKEN:-}
+      SLACK_STANDUP_CHANNEL: ${SLACK_STANDUP_CHANNEL:-#standup}
+      LOG_LEVEL:             info
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+
+  # ── Orchestrator ───────────────────────────────────────────────────────────
+  orchestrator-service:
+    build:
+      context: ./services/orchestrator-service
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    environment:
+      PORT:                    "3005"
+      TICKET_SERVICE_URL:      http://ticket-service:3001
+      PRIORITY_SERVICE_URL:    http://priority-service:3003
+      STANDUP_SERVICE_URL:     http://standup-service:3004
+      REQUEST_TIMEOUT_SECONDS: "30"
+      LOG_LEVEL:               info
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+
+  # ── Slack Intake ───────────────────────────────────────────────────────────
+  slack-intake-service:
+    build:
+      context: ./services/slack-intake-service
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    environment:
+      PORT:                 "3006"
+      TICKET_SERVICE_URL:   http://ticket-service:3001
+      SLACK_BOT_TOKEN:      ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      WATCHED_CHANNELS:     ${WATCHED_CHANNELS:-}
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+
+  # ── GitHub Status ──────────────────────────────────────────────────────────
+  github-status-service:
+    build:
+      context: ./services/github-status-service
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT:                  "3002"
+      TICKET_SERVICE_URL:    http://ticket-service:3001
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      SLACK_BOT_TOKEN:       ${SLACK_BOT_TOKEN:-}
+      SLACK_NOTIFY_CHANNEL:  ${SLACK_NOTIFY_CHANNEL:-#dev-updates}
+      JIRA_PROJECT_KEYS:     APM
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+
+  # ── Web Dashboard ──────────────────────────────────────────────────────────
+  web-dashboard:
+    build:
+      context: ./apps/web-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      TICKET_SERVICE_URL: http://ticket-service:3001
+      NODE_ENV:           production
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  # mongo_data:   # uncomment if using local MongoDB

@@ -1,0 +1,22 @@
+{
+  "name": "slack-intake-service",
+  "version": "1.0.0",
+  "description": "Autonomous PM – Slack Intake Service. Listens for Slack events and creates tickets.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.19.0",
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.0"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "jest": { "testEnvironment": "node", "testMatch": ["**/tests/**/*.test.js"] }
+}

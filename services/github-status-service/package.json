@@ -1,0 +1,22 @@
+{
+  "name": "github-status-service",
+  "version": "1.0.0",
+  "description": "Autonomous PM – GitHub Status Service. Receives GitHub webhooks and updates ticket statuses.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev":   "nodemon src/index.js",
+    "test":  "jest --coverage"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.0"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "jest": { "testEnvironment": "node", "testMatch": ["**/tests/**/*.test.js"] }
+}
